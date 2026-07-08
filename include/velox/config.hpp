@@ -6,10 +6,30 @@
 #pragma once
 
 
-#ifndef VELOX_FAST_FAIL
-#define VELOX_FAST_FAIL 1
+#include <cstdint>
+
+#ifndef VELOX_FAIL_FAST
+    #define VELOX_FAIL_FAST 1
 #endif
 
 namespace velox {
-    inline constexpr bool kFailFast = (VELOX_FAST_FAIL != 0);
+
+inline constexpr bool kFailFast = (VELOX_FAIL_FAST != 0);
+
 } // namespace velox
+
+#if defined(__clang__) || defined(__GNUC__)
+    #define VELOX_ALWAYS_INLINE __attribute__((always_inline)) inline
+    #define VELOX_COLD __attribute__((cold))
+#else
+    #define VELOX_ALWAYS_INLINE inline
+    #define VELOX_COLD inline
+#endif
+
+#if defined(__clang__)
+    #define VELOX_ASSUME(expr) __builtin_assume(expr)
+#elif defined(__GNUC__)
+    #define VELOX_ASSUME(expr) do { if (!(expr)) __builtin_unreachable(); } while (0)
+#else
+    #define VELOX_ASSUME(expr) ((void)0)
+#endif
