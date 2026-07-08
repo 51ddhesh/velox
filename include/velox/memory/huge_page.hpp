@@ -57,7 +57,7 @@ private:
         const bool attempt_huge = (huge_mode != HugePageMode::Disable) && (bytes >= kHugePageSize);
 
         // over-allocate to hugepage multiple only when attempting huge pages 
-        const std::size_t map_size = attempt_huge ? round_up(bytes, kHugePageSize) : bytes;
+        const std::size_t huge_map_size = attempt_huge ? round_up(bytes, kHugePageSize) : bytes;
 
         void* p = MAP_FAILED;
 
@@ -69,30 +69,31 @@ private:
                     flags |= MAP_HUGE_2MB;
                 #endif
 
-                p = ::mmap(nullptr, map_size, PROT_READ | PROT_WRITE, flags, -1, 0);
+                p = ::mmap(nullptr, huge_map_size, PROT_READ | PROT_WRITE, flags, -1, 0);
             }
         #endif 
 
-        if (p == MAP_FAILED) {
+        if (p != MAP_FAILED) {
+            ptr_ = p;
+            size_ = huge_map_size;
+            is_huge_ = true;
+        } else {
             if (attempt_huge && huge_mode == HugePageMode::Require) {
                 velox::core::fatal_errno("mmap(MAP_HUGETLB) failed and huge pages are required");
             }
 
-            p = ::mmap(nullptr, map_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
+            p = ::mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
             if (p == MAP_FAILED) {
                 velox::core::fatal_errno("mmap(MAP_ANONYMOUS) failed");
             }
 
+            ptr_ = p;
+            size_ = bytes;
+            
             #if defined(MADV_HUGEPAGE) 
-                (void)::madvise(p, map_size, MADV_HUGEPAGE);
+            (void)::madvise(p, huge_map_size, MADV_HUGEPAGE);
             #endif
-        } else {
-            is_huge_ = true;
         }
-
-        ptr_ = p;
-        size_ = map_size;
 
         if (lock_mode == LockMode::Lock) {
             if (::mlock(ptr_, size_) != 0) {
