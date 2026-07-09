@@ -11,6 +11,10 @@ add_executable(velox_tests
     test_arena.cpp
     test_fixed_slot_allocator.cpp
     test_no_malloc.cpp
+
+    test_dispatch_table.cpp
+    test_validation_masks.cpp
+    test_routing_keys.cpp
 )
 
 target_link_libraries(velox_tests PRIVATE velox doctest::doctest_with_main)
