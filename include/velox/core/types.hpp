@@ -40,6 +40,8 @@ enum class Side : uint8_t {
     Ask = 1
 };
 
+inline constexpr SymbolId kInvalidSymbol{0xFFFF};
+
 static_assert(std::is_trivially_copyable_v<Price>);
 static_assert(std::is_trivially_copyable_v<Qty>);
 static_assert(std::is_trivially_copyable_v<OrderId>);
