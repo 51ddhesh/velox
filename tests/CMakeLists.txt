@@ -15,6 +15,8 @@ add_executable(velox_tests
     test_dispatch_table.cpp
     test_validation_masks.cpp
     test_routing_keys.cpp
+
+    test_sbe_wire.cpp
 )
 
 target_link_libraries(velox_tests PRIVATE velox doctest::doctest_with_main)
