@@ -132,6 +132,49 @@ private:
         return static_cast<int32_t>(idx);
     }
 
+    [[nodiscard]] VELOX_ALWAYS_INLINE Price to_price_(int32_t idx) const noexcept {
+        const int64_t px = base_price_ + static_cast<int64_t>(idx) * Tick;
+        return px;
+    }
+    
+    [[nodiscard]] BestLevel best_(const std::array<uint64_t, words()>& bits, Side side) const noexcept {
+        if (side == Side::Ask) {
+            for (std::size_t wi = 0; wi < words(); wi++) {
+                const uint64_t w = bits[wi];
+                if (w == 0) continue;
+                const int32_t bit = static_cast<int32_t>(std::countr_zero(w));
+                const int32_t idx = static_cast<int32_t>(wi * 64 + static_cast<std::size_t>(bit));
+                const Level& L = levels_[static_cast<std::size_t>(idx)];
+
+                return BestLevel {
+                    true,
+                    to_price_(idx),
+                    Qty{L.ask_qty},
+                    L.ask_count
+                };
+            }
+
+            return {};
+        } else {
+            for (std::size_t wi = words(); wi-- > 0;) {
+                const uint64_t w = bits[wi];
+                if (w == 0) continue;
+                const int32_t bit = 63 - static_cast<int32_t>(std::countl_zero(w));
+                const int32_t idx = static_cast<int32_t>(wi * 64 + static_cast<std::size_t>(bit));
+                const Level& L + levels_[static_cast<std::size_t>(idx)];
+
+                return BestLevel {
+                    true,
+                    to_price_(idx),
+                    Qty{L.bid_qty},
+                    L.bid_count
+                };
+            }
+        }
+
+        return {};
+    }
+
 public:
 
     struct LevelState;
