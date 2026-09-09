@@ -21,6 +21,9 @@ class IndexedBook {
     static_assert((Levels % 64) == 0);
     static_assert(Tick > 0);
 
+public:
+    struct BestLevel;
+
 private:
     int64_t base_price_{0};
 
@@ -66,7 +69,7 @@ private:
         const uint32_t u = static_cast<uint32_t>(idx);
         bits[u >> 6] &= -(uint64_t{1} << (u & 63));
     }
-    
+
 
     VELOX_COLD void rebuild_bits_() noexcept {
         std::memset(bid_bits_.data(), 0, sizeof(uint64_t) * words());
@@ -125,8 +128,8 @@ private:
     VELOX_ALWAYS_INLINE int32_t ensure_index_(Price price) noexcept {
         int64_t idx = to_index_unchecked_(price.value);
         if (in_range_(idx)) [[likely]] return static_cast<int32_t>(idx);
-        
-        recentre_(price);
+
+        recenter_(price);
         idx = to_index_unchecked_(price.value);
         VELOX_ASSUME(in_range_(idx));
         return static_cast<int32_t>(idx);
@@ -134,9 +137,9 @@ private:
 
     [[nodiscard]] VELOX_ALWAYS_INLINE Price to_price_(int32_t idx) const noexcept {
         const int64_t px = base_price_ + static_cast<int64_t>(idx) * Tick;
-        return px;
+        return Price{px};
     }
-    
+
     [[nodiscard]] BestLevel best_(const std::array<uint64_t, words()>& bits, Side side) const noexcept {
         if (side == Side::Ask) {
             for (std::size_t wi = 0; wi < words(); wi++) {
@@ -161,7 +164,7 @@ private:
                 if (w == 0) continue;
                 const int32_t bit = 63 - static_cast<int32_t>(std::countl_zero(w));
                 const int32_t idx = static_cast<int32_t>(wi * 64 + static_cast<std::size_t>(bit));
-                const Level& L + levels_[static_cast<std::size_t>(idx)];
+                const Level& L = levels_[static_cast<std::size_t>(idx)];
 
                 return BestLevel {
                     true,
@@ -176,11 +179,97 @@ private:
     }
 
 public:
+    struct LevelState {
+        uint32_t qty{0};
+        uint32_t order_count{0};
+    };
 
-    struct LevelState;
+    struct BestLevel {
+        bool valid{false};
+        Price price{0};
+        Qty qty{0};
+        uint32_t order_count{0};
+    };
 
-    struct BestLevel;
+    void reset(Price base_price) noexcept {
+        base_price_ = align_to_tick_(base_price.value);
+        std::memset(levels_.data(), 0, sizeof(Level) * Levels);
+        std::memset(bid_bits_.data(), 0, sizeof(uint64_t) * words());
+        std::memset(ask_bits_.data(), 0, sizeof(uint64_t) * words());
+    }
 
+    [[nodiscard]] constexpr std::size_t size_levels() const noexcept {
+        return Levels;
+    }
+
+    [[nodiscard]] constexpr int64_t tick() const noexcept {
+        return Tick;
+    }
+
+    [[nodiscard]] Price base_price() const noexcept {
+        return Price{base_price_};
+    }
+
+    [[nodiscard]] Price max_price() const noexcept {
+        return Price{base_price_ + static_cast<int64_t>(Levels - 1) * Tick};
+    }
+
+    IndexedBook() noexcept { reset(Price{0}); }
+
+    VELOX_ALWAYS_INLINE void add_order(Price price, Qty delta, Side side) noexcept {
+        const int32_t idx = ensure_index_(price);
+        Level& L = levels_[static_cast<std::size_t>(idx)];
+
+        if (side == Side::Bid) {
+            const uint32_t before = L.bid_qty;
+            L.bid_qty = before + delta.value;
+            L.bid_count += 1;
+            if (before == 0) [[unlikely]] set_bit_(bid_bits_, idx);
+        } else {
+            const uint32_t before = L.ask_qty;
+            L.ask_qty = before + delta.value;
+            L.ask_count += 1;
+            if (before == 0) [[unlikely]] set_bit_(ask_bits_, idx);
+        }
+    }
+
+    VELOX_ALWAYS_INLINE void reduce_order(Price price, Qty delta, Side side, bool remove_order) noexcept {
+        const int32_t idx = ensure_index_(price);
+        Level& L = levels_[static_cast<std::size_t>(idx)];
+
+        if (side == Side::Bid) {
+            VELOX_ASSUME(L.bid_qty >= delta.value);
+            L.bid_qty -= delta.value;
+
+            if (remove_order) {
+                VELOX_ASSUME(L.bid_count > 0);
+                L.bid_count -= 1;
+            }
+
+            if (L.bid_qty == 0) [[unlikely]] clear_bit_(bid_bits_, idx);
+        } else {
+            VELOX_ASSUME(L.ask_qty >= delta.value);
+            L.ask_qty -= delta.value;
+
+            if (remove_order) {
+                VELOX_ASSUME(L.ask_count > 0);
+                L.ask_count -= 1;
+            }
+
+            if (L.ask_qty == 0) [[unlikely]] clear_bit_(ask_bits_, idx);
+        }
+    }
+
+    [[nodiscard]] LevelState level_at(Price price, Side side) const noexcept {
+        const int64_t idx64 = to_index_unchecked_(price.value);
+        if (idx64 < 0 || idx64 >= static_cast<int64_t>(Levels)) return {};
+        const auto& L = levels_[static_cast<std::size_t>(idx64)];
+        if (side == Side::Bid) return {L.bid_qty, L.bid_count};
+        return {L.ask_qty, L.ask_count};
+    }
+
+    [[nodiscard]] BestLevel best_bid() const noexcept { return best_(bid_bits_, Side::Bid); }
+    [[nodiscard]] BestLevel best_ask() const noexcept { return best_(ask_bits_, Side::Ask); }
 };
 
 } // namespace velox::core
